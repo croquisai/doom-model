@@ -10,15 +10,18 @@ class ActionEmbedding(nn.Module):
         return self.embedding(x)
 
 class ConditionedFrameGen(nn.Module):
-    def __init__(self, img_channels=3, action_dim=3, emb_dim=32, input_size=128):
+    def __init__(self, img_channels=3, action_dim=3, emb_dim=32, input_size=128, context=5):
         super().__init__()
-        self.action_emb = ActionEmbedding(action_dim, emb_dim)
+        self.context = context
         self.img_channels = img_channels
         self.input_size = input_size
+        self.action_emb = ActionEmbedding(action_dim, emb_dim)
+
+        total_channels = img_channels * context
 
         encoder_layers = []
         decoder_layers = []
-        channels = [img_channels, 32, 64, 128, 256, 512]
+        channels = [total_channels, 32, 64, 128, 256, 512]
         size = input_size
         # Encoder
         for i in range(len(channels) - 1):
@@ -35,21 +38,24 @@ class ConditionedFrameGen(nn.Module):
         decoder_layers.append(nn.LeakyReLU())
         decoder_layers.append(nn.Unflatten(1, (channels[-1], size, size)))
         for i in range(len(channels) - 1, 0, -1):
-            decoder_layers.append(nn.ConvTranspose2d(channels[i], channels[i-1], 4, 2, 1))
+            out_channels = img_channels if i == 1 else channels[i-1]
+            decoder_layers.append(nn.ConvTranspose2d(channels[i], out_channels, 4, 2, 1))
             if i > 1:
                 decoder_layers.append(nn.LeakyReLU())
         decoder_layers.append(nn.Sigmoid())
         self.decoder = nn.Sequential(*decoder_layers)
 
-    def forward(self, prev_frame, action):
-        # prev_frame: (B, C, H, W)
+    def forward(self, prev_frames, action):
+        # prev_frames: (B, context, C, H, W)
         # action: (B, action_dim)
         B = action.shape[0]
         H = self.input_size
         W = self.input_size
-        if prev_frame is None:
-            prev_frame = torch.zeros((B, self.img_channels, H, W), device=action.device)
-        x = self.encoder(prev_frame)
+        if prev_frames is None:
+            prev_frames = torch.zeros((B, self.context, self.img_channels, H, W), device=action.device)
+        # Concatenate context frames along channel dimension
+        x = prev_frames.view(B, self.context * self.img_channels, H, W)
+        x = self.encoder(x)
         x = x.view(x.size(0), -1)
         a = self.action_emb(action)
         x = torch.cat([x, a], dim=1)

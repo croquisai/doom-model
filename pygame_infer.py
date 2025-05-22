@@ -2,8 +2,13 @@ import torch
 import numpy as np
 import pygame
 from model import ConditionedFrameGen
+from config import SMALL, LARGE, TEST
 
-image_size = 512
+model_config = TEST
+
+image_size = model_config["model"]["input_size"]
+context = model_config["model"]["context"]
+emb_dim = model_config["model"]["emb_dim"]
 
 def get_action(keys):
     action = np.zeros(3, dtype=np.float32)
@@ -17,12 +22,12 @@ def get_action(keys):
 
 initial_frame = "dataset/frames/frame_000000.jpg"
 
-def infer(prev_frame, action, model):
+def infer(prev_frames, action, model):
     device = next(model.parameters()).device
-    prev_frame = torch.tensor(prev_frame, dtype=torch.float32).unsqueeze(0).to(device)
+    prev_frames = torch.tensor(prev_frames, dtype=torch.float32).unsqueeze(0).to(device)  # (1, context, C, H, W)
     action = torch.tensor(action, dtype=torch.float32).unsqueeze(0).to(device)
     with torch.no_grad():
-        out = model(prev_frame, action)
+        out = model(prev_frames, action)
     out_img = out.squeeze(0).cpu().numpy().transpose(1, 2, 0)
     return out_img
 
@@ -33,16 +38,19 @@ def main():
     clock = pygame.time.Clock()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "mps")
-    model = ConditionedFrameGen(img_channels=3, action_dim=3, emb_dim=512, input_size=image_size).to(device)
-    model.load_state_dict(torch.load("checkpoints/ckpt2800.pth", map_location=device))
+    model = ConditionedFrameGen(img_channels=3, action_dim=3, emb_dim=emb_dim, input_size=image_size, context=context).to(device)
+    model.load_state_dict(torch.load("framegen.pth", map_location=device))
     model.eval()
 
     import time
     from PIL import Image
 
     img = Image.open(initial_frame).resize((image_size, image_size)).convert("RGB")
-    prev_frame = np.array(img).astype(np.float32) / 255.0
-    prev_frame = prev_frame.transpose(2, 0, 1)  # (C, H, W)
+    first_frame = np.array(img).astype(np.float32) / 255.0
+    first_frame = first_frame.transpose(2, 0, 1)  # (C, H, W)
+
+    prev_frames = [first_frame.copy() for _ in range(context)]  # list of (C, H, W)
+
     import os
     import psutil
     process = psutil.Process(os.getpid())
@@ -56,8 +64,12 @@ def main():
 
         keys = pygame.key.get_pressed()
         action = get_action(keys)
-        out_img = infer(prev_frame, action, model)
-        prev_frame = out_img.transpose(2, 0, 1)
+        # Stack context frames to shape (context, C, H, W)
+        prev_frames_np = np.stack(prev_frames, axis=0)
+        out_img = infer(prev_frames_np, action, model)
+        # Update context buffer: drop oldest, append newest
+        prev_frames.pop(0)
+        prev_frames.append(out_img.transpose(2, 0, 1))
 
         frame_disp = np.clip(out_img * 255, 0, 255).astype(np.uint8)
         frame_disp = np.rot90(frame_disp, k=1)

@@ -4,8 +4,13 @@ from model import ConditionedFrameGen
 import matplotlib.pyplot as plt
 import time
 import imageio
+from config import SMALL, LARGE, TEST
 
-image_size = 512
+model_config = TEST
+
+image_size = model_config["model"]["input_size"]
+context = model_config["model"]["context"]
+emb_dim = model_config["model"]["emb_dim"]
 
 def infer(prev_frame, action, model):
     device = next(model.parameters()).device
@@ -18,8 +23,8 @@ def infer(prev_frame, action, model):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "mps")
-    model = ConditionedFrameGen(img_channels=3, action_dim=3, emb_dim=512, input_size=image_size).to(device)
-    model.load_state_dict(torch.load("checkpoints/ckpt200.pth", map_location=device))
+    model = ConditionedFrameGen(img_channels=3, action_dim=3, emb_dim=emb_dim, input_size=image_size).to(device)
+    model.load_state_dict(torch.load("checkpoints/ckfpt200.pth", map_location=device))
     model.eval()
 
     # Initial random frame

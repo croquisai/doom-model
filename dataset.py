@@ -6,10 +6,11 @@ import cv2
 import numpy as np
 
 class ViZDoomFrameGenDataset(Dataset):
-    def __init__(self, frames_dir, actions_csv, img_size=32):
+    def __init__(self, frames_dir, actions_csv, img_size=32, context=5):
         self.frames_dir = frames_dir
         self.data = pd.read_csv(actions_csv)
         self.img_size = img_size
+        self.context = context
 
     def __len__(self):
         return len(self.data)
@@ -27,20 +28,26 @@ class ViZDoomFrameGenDataset(Dataset):
         return img
 
     def __getitem__(self, idx):
-        # Current frame and action
-        row = self.data.iloc[idx]
-        curr_frame = self._load_frame(row['frame'])
-        action = row[1:].values.astype(np.float32)
+        # Stack previous `context` frames (including current)
+        frames = []
+        for i in range(self.context):
+            j = idx - (self.context - 1 - i)
+            if j < 0:
+                # Zero frame for padding
+                frame = np.zeros((3, self.img_size, self.img_size), dtype=np.float32)
+            else:
+                row = self.data.iloc[j]
+                frame = self._load_frame(row['frame'])
+            frames.append(frame)
+        prev_frames = np.stack(frames, axis=0)  # (context, C, H, W)
 
-        # previous frame
-        if idx == 0:
-            prev_frame = np.zeros_like(curr_frame)
-        else:
-            prev_row = self.data.iloc[idx - 1]
-            prev_frame = self._load_frame(prev_row['frame'])
+        # Current action and frame
+        row = self.data.iloc[idx]
+        action = row[1:].values.astype(np.float32)
+        curr_frame = self._load_frame(row['frame'])
 
         return (
-            torch.tensor(prev_frame, dtype=torch.float32),
+            torch.tensor(prev_frames, dtype=torch.float32),  # (context, C, H, W)
             torch.tensor(action, dtype=torch.float32),
             torch.tensor(curr_frame, dtype=torch.float32),
         )

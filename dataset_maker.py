@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 SCENARIO_PATH = "doom.wad"
 OUTPUT_DIR = "dataset"
-N_EPISODES = 500
+N_EPISODES = 50
 STEPS_PER_EPISODE = 50
 SAVE_QUEUE_SIZE = 100
 NUM_WORKERS = 4
