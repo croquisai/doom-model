@@ -1,0 +1,7 @@
+torch
+tqdm
+vizdoom
+matplotlib
+imageio
+pandas
+opencv-python
